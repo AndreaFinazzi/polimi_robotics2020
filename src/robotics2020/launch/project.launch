@@ -1,0 +1,47 @@
+<launch>
+    <group ns="r2020">
+        <param name="fixed_point_lat" value="45.6216561271" />
+        <param name="fixed_point_lon" value="9.28155230131" />
+        <param name="fixed_point_alt" value="224.616616895" />
+        
+        <group ns="front">
+            <param name="tf_prefix" value="front" type="str"/>
+            
+            <node pkg="tf" type="static_transform_publisher" name="front_tf_broadcaster" args="100 100 0 0 0 0 1 front/base_link front/sensors_gps 10" />
+            
+            <node pkg="robotics2020" type = "lla2enu" name = "front">
+                <remap from="lla_topic" to="/swiftnav/front/gps_pose"/>
+                <remap from="odom_topic" to="odom"/>
+            </node>
+
+            <node pkg="robotics2020" type = "tf_broadcaster" name = "tf">
+                <remap from="odom_topic" to="odom"/>
+            </node>
+
+        </group>
+        <group ns="obs">
+            <param name="tf_prefix" value="obs" type="str"/>
+
+            <node pkg="tf" type="static_transform_publisher" name="obs_tf_broadcaster" args="100 100 0 0 0 0 1 obs/base_link obs/sensors_gps 10" />
+            
+            <node pkg="robotics2020" type = "lla2enu" name = "obs">
+                <remap from="lla_topic" to="/swiftnav/obs/gps_pose"/>
+                <remap from="odom_topic" to="odom"/>
+            </node>
+
+            <node pkg="robotics2020" type = "tf_broadcaster" name = "tf">
+                <remap from="odom_topic" to="odom"/>
+            </node>
+
+        </group>
+
+        <node pkg="robotics2020" type = "distance"  name = "distance_server">
+
+        </node>
+        <node pkg="robotics2020" type = "collision_guard" output="screen" name = "collision_guard">
+            <remap from="odom_topic_a" to="front/odom"/>
+            <remap from="odom_topic_b" to="obs/odom"/>
+        </node>
+    </group>
+</launch>
+
