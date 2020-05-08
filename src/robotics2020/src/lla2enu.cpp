@@ -37,33 +37,17 @@ class ENUConverter {
         
         // conversion tools
         // Here to reduce memory initialization occurrence
-        float lamb;
-        float phi;
-        float s;
-        float N;
+        float lamb, phi, s, N;
+        float  sin_lambda, cos_lambda, sin_phi, cos_phi;
 
-        float  sin_lambda;
-        float  cos_lambda;
-        float  sin_phi;
-        float  cos_phi;
-
-        float  ECEF_x;
-        float  ECEF_y;
-        float  ECEF_z;
-
-        float  x0;
-        float  y0;
-        float  z0;
-
-        float  xd;
-        float  yd;
-        float  zd;
-
-        float  ENU_x;
-        float  ENU_y;
-        float  ENU_z;
+        float  ECEF_x, ECEF_y, ECEF_z;
+        float  x0, y0, z0;
+        float  xd, yd, zd;
+        float  ENU_x, ENU_y, ENU_z;
 
     public:
+
+        // Set Fixed Point coordinates
         static void setFixedPoint(float lat, float lon, float alt) {
             ENUConverter::latitude_init = lat;
             ENUConverter::longitude_init = lon;
@@ -87,7 +71,6 @@ class ENUConverter {
             ECEF_z = (*alt + (1 - WGS84_E_SQ) * N) * sin_lambda;
             
             // ecef to enu
-            
             lamb = WGS84_DEG_TO_RAD * (ENUConverter::latitude_init);
             phi = WGS84_DEG_TO_RAD * (ENUConverter::longitude_init);
             s = sin(lamb);
@@ -116,13 +99,14 @@ class ENUConverter {
             position->z = ENU_z;
         }
 };
-
+// statics init
 float ENUConverter::latitude_init = 0;
 float ENUConverter::longitude_init = 0;
 float ENUConverter::h_init = 0;
 
 class ENUPublisher {
     std::string tf_prefix_key, tf_prefix, tf_frame_fixed, tf_frame_base, tf_frame_sensors_gps;
+    const float nan_;
 
     ros::NodeHandle node;
 
@@ -133,22 +117,56 @@ class ENUPublisher {
     ENUConverter enu_converter;
 
     void llaCallback(const sensor_msgs::NavSatFix::ConstPtr& msg) {
+        last_odom.header.stamp = ros::Time::now();
+
+        // Check msg validity
         if (msg->latitude > 0 && msg->longitude > 0 && msg->altitude > 0) {
-            last_odom.header.stamp = ros::Time::now();
+            // Perform conversion
             enu_converter.setOdomFromLLA(&(msg->latitude), &(msg->longitude), &(msg->altitude), &(last_odom.pose.pose.position));
         } else {
             // handle GPS (0,0,0)
+            // Invalidate odom
+            last_odom.pose.pose.position.x = nan_;
+            last_odom.pose.pose.position.y = nan_;
+            last_odom.pose.pose.position.z = nan_;
         }
 
         enu_pub.publish(last_odom);
     }
 
+    void initializeParams() {
+        std::string param_name_lat, param_name_lon, param_name_alt;
+        // Look for params
+        if (
+            node.searchParam(NAMES_PARAMS_FP_LAT, param_name_lat) && 
+            node.searchParam(NAMES_PARAMS_FP_LON, param_name_lon) && 
+            node.searchParam(NAMES_PARAMS_FP_ALT, param_name_alt))
+            {
+                float fp_lat, fp_lon, fp_alt;
+                
+                if (node.getParam(param_name_lat, fp_lat) &&
+                    node.getParam(param_name_lon, fp_lon) &&
+                    node.getParam(param_name_alt, fp_alt)) {
+
+                        ENUConverter::setFixedPoint(fp_lat, fp_lon, fp_alt);
+                        return;
+                } else {
+                    ROS_WARN("Cannot retrieve Fixed Point parameters.");
+                }
+            }
+            
+            // Fallback to default values
+            ENUConverter::setFixedPoint(DEFAULTS_ENU_FP_LAT, DEFAULTS_ENU_FP_LON, DEFAULTS_ENU_FP_ALT);
+
+    }
+
     public:
-        ENUPublisher() {
+        ENUPublisher(): nan_(nanf("")) {
             // Retrieve tf_prefix param
             // get the tf_prefix parameter from the closest namespace
             node.searchParam("tf_prefix", tf_prefix_key);
             node.param(tf_prefix_key, tf_prefix, std::string(""));
+            
             // Resolve frames names
             tf_frame_fixed = tf::resolve("/", NAMES_FIXED_FRAME_ID);
             tf_frame_base = tf::resolve(tf_prefix, NAMES_BASE_FRAME_ID);
@@ -161,28 +179,11 @@ class ENUPublisher {
             lla_sub = node.subscribe(NAMES_LLA_TOPIC, 1000, &ENUPublisher::llaCallback, this);
             enu_pub =  node.advertise<nav_msgs::Odometry>(NAMES_ODOM_TOPIC, 1000);
 
-            std::string param_name_lat, param_name_lon, param_name_alt;
-            // Look for params
-            if (node.searchParam(NAMES_PARAMS_FP_LAT, param_name_lat) && node.searchParam(NAMES_PARAMS_FP_LON, param_name_lon) && node.searchParam(NAMES_PARAMS_FP_ALT, param_name_alt))
-                {
-                    float fp_lat, fp_lon, fp_alt;
-                    
-                    if (node.getParam(param_name_lat, fp_lat) &&
-                        node.getParam(param_name_lon, fp_lon) &&
-                        node.getParam(param_name_alt, fp_alt)) {
-
-                            ENUConverter::setFixedPoint(fp_lat, fp_lon, fp_alt);
-                    } else {
-                        ROS_WARN("Cannot retrieve Fixed Point parameters.");
-                    }
-                } else {
-                    ENUConverter::setFixedPoint(DEFAULTS_ENU_FP_LAT, DEFAULTS_ENU_FP_LON, DEFAULTS_ENU_FP_ALT);
-                }
+            initializeParams();
         }
 };
 
 int main(int argc, char **argv) {
-    sleep(10);
 	ros::init(argc, argv, NAMES_NODE);
     ENUPublisher enu_pub;
 

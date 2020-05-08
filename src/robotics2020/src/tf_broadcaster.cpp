@@ -14,7 +14,7 @@
 #define NAMES_BASE_FRAME_ID "base_link"
 
 class TFPublisher {
-    std::string tf_prefix_key, tf_prefix, tf_frame_fixed, tf_frame_base, tf_frame_sensors_gps;
+    std::string tf_prefix_key, tf_prefix, tf_frame_fixed, tf_frame_base;
 
     ros::NodeHandle node;
 
@@ -26,19 +26,26 @@ class TFPublisher {
     tf::StampedTransform tf_stamped_tf;
 
     void odomCallback(const nav_msgs::Odometry::ConstPtr& odom) {
-
-        tf_listener.waitForTransform(tf_frame_sensors_gps, tf_frame_base, odom -> header.stamp, ros::Duration(0.5));
-        tf_listener.transformPoint(
-            tf_frame_sensors_gps,
-            tf::Stamped<tf::Vector3>(
-                tf::Vector3(odom->pose.pose.position.x, odom->pose.pose.position.y, odom->pose.pose.position.z),
-                ros::Time(0),
-                tf_frame_base),
-            tf_stamped_v);
-        
-        tf_stamped_tf.setOrigin(tf_stamped_v);
-        tf_stamped_tf.stamp_ = tf_stamped_v.stamp_;
-        tf_broadcaster.sendTransform(tf_stamped_tf);
+        // Check if odom data is valid
+        if (!isnan(odom->pose.pose.position.x) && !isnan(odom->pose.pose.position.y) && !isnan(odom->pose.pose.position.z)) {
+            try {
+                // transform odom data (sensor -> base)
+                tf_listener.waitForTransform(odom -> child_frame_id, tf_frame_base, odom -> header.stamp, ros::Duration(0.5));
+                tf_listener.transformPoint(
+                    odom -> child_frame_id,
+                    tf::Stamped<tf::Vector3>(
+                        tf::Vector3(odom->pose.pose.position.x, odom->pose.pose.position.y, odom->pose.pose.position.z),
+                        ros::Time(0),
+                        tf_frame_base),
+                    tf_stamped_v);
+                
+                tf_stamped_tf.setOrigin(tf_stamped_v);
+                tf_stamped_tf.stamp_ = tf_stamped_v.stamp_;
+                tf_broadcaster.sendTransform(tf_stamped_tf);
+            } catch (const std::exception& e) {
+                ROS_ERROR(e.what());
+            }
+        }
     }
 
     public:
@@ -50,7 +57,7 @@ class TFPublisher {
             // Resolve frames names
             tf_frame_fixed = tf::resolve("/", NAMES_FIXED_FRAME_ID);
             tf_frame_base = tf::resolve(tf_prefix, NAMES_BASE_FRAME_ID);
-            tf_frame_sensors_gps = tf::resolve(tf_prefix, NAMES_SENSORS_GPS_FRAME_ID);
+            // tf_frame_sensors_gps = tf::resolve(tf_prefix, NAMES_SENSORS_GPS_FRAME_ID);
 
             // tf set up
             tf_stamped_tf.frame_id_ = tf_frame_fixed;

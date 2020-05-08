@@ -29,7 +29,7 @@
             "name": "(gdb) Attach",
             "type": "cppdbg",
             "request": "attach",
-            "program": "${workspaceRoot}/devel/lib/robotics2020/lla2enu",
+            "program": "${workspaceRoot}/devel/lib/robotics2020/collision_guard",
             "processId": "${command:pickProcess}",
             "MIMode": "gdb",
             "setupCommands": [

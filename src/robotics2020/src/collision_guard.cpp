@@ -66,64 +66,46 @@ class CollisionGuard {
 
         void callback(const nav_msgs::OdometryConstPtr& odom_a, const nav_msgs::OdometryConstPtr& odom_b) {
             // Check msgs and ask distance_service to calculate distance
-            // ROS_INFO("sync callback called");
-            distance_srv.request.pointA = odom_a -> pose.pose.position;
-            distance_srv.request.pointB = odom_b -> pose.pose.position;
+            //
+            output_msg.distance_m = nanf("");
+            output_msg.flag = robotics2020::CollisionGuardMsg::_FLAG_ERROR_;
 
-            if (odom_a -> header.frame_id != odom_b -> header.frame_id) {
-                // --------- NOT TESTED! ---------
-                // Points not directly comparable, look for a tf
-                    try
-                    {
-                        if (tf_listener.canTransform(odom_a -> header.frame_id, odom_b -> header.frame_id, ros::Time(0))) {
-                                // Try to get a valid transform
-                            tf_listener.waitForTransform(odom_a -> header.frame_id, odom_b -> header.frame_id, ros::Time(0), ros::Duration(0.5));
-                            tf_listener.transformPoint(
-                                odom_a -> header.frame_id,
-                                tf::Stamped<tf::Vector3>(
-                                    tf::Vector3(odom_b->pose.pose.position.x, odom_b->pose.pose.position.y, odom_b->pose.pose.position.z),
-                                    ros::Time(0),
-                                    odom_b -> header.frame_id),
-                                tf_stamped_v);
-                            // Store transformed point
-                            geometry_msgs::PointStamped point_stamped;
-                            tf::pointStampedTFToMsg(tf_stamped_v, point_stamped);
-                            distance_srv.request.pointB = point_stamped.point;
-                        } else {
-                            output_msg.distance_m = nanf("");
-                            output_msg.flag = robotics2020::CollisionGuardMsg::_FLAG_ERROR_;
+            // Check if both odom messages are valid
+            if (
+                !isnan(odom_a->pose.pose.position.x) && !isnan(odom_a->pose.pose.position.y) && !isnan(odom_a->pose.pose.position.z) &&
+                !isnan(odom_b->pose.pose.position.x) && !isnan(odom_b->pose.pose.position.y) && !isnan(odom_b->pose.pose.position.z)
+            ) {
+                distance_srv.request.pointA = odom_a -> pose.pose.position;
+                distance_srv.request.pointB = odom_b -> pose.pose.position;
+                
+                // Check if odom msgs are referenced to the same frame (otherwise not directly comparable)
+                if (odom_a -> header.frame_id == odom_b -> header.frame_id) {
+                    // Check if client connection is still alive, otherwise try to restore it
+                    if (client && client -> call(distance_srv)) {
+                        // Call service and publish custom message
+                        output_msg.distance_m = distance_srv.response.distance_m;
+                        
+                        // Set status flag based on thresholds
+                        if (output_msg.distance_m > collision_th_safe) output_msg.flag = robotics2020::CollisionGuardMsg::FLAG_SAFE;
+                        else if (output_msg.distance_m > collision_th_crash) output_msg.flag = robotics2020::CollisionGuardMsg::FLAG_UNSAFE;
+                        else output_msg.flag = robotics2020::CollisionGuardMsg::FLAG_CRASH;
+
+                    } else {
+                        if (!createServiceClient()) {
+                            node.shutdown();
+                            exit(-1);
+                            // unnecessary?
                             return;
                         }
+                        callback(odom_a, odom_b);
                     }
-                    catch(const std::exception& e)
-                    {
-                        std::cerr << e.what() << '\n';
-                        output_msg.flag = robotics2020::CollisionGuardMsg::_FLAG_ERROR_;
-                        return;
-                    }
-
-            }
-
-            // Check if client connection is still alive, otherwise try to restore it
-            if (client && client -> call(distance_srv)) {
-                // Call service and publish custom message
-                output_msg.distance_m = distance_srv.response.distance_m;
-                
-                // Set status flag based on thresholds
-                if (output_msg.distance_m > collision_th_safe) output_msg.flag = robotics2020::CollisionGuardMsg::FLAG_SAFE;
-                else if (output_msg.distance_m > collision_th_crash) output_msg.flag = robotics2020::CollisionGuardMsg::FLAG_UNSAFE;
-                else output_msg.flag = robotics2020::CollisionGuardMsg::FLAG_CRASH;
-
-                publisher.publish(output_msg);
-            } else {
-                if (!createServiceClient()) {
-                    node.shutdown();
-                    exit(-1);
-                    // unnecessary?
-                    return;
+                } else {
+                    // Points not directly comparable, should look for a tf and transform to a common frame reference
+                    ROS_ERROR("Trying to compare uncomparable odometries.");
                 }
-                callback(odom_a, odom_b);
             }
+
+            publisher.publish(output_msg);
         }
 
     public:
@@ -161,7 +143,6 @@ void dr_callback(robotics2020::CollisionGuardParamsConfig &config, uint32_t leve
 }
 
 int main(int argc, char **argv) {
-    // sleep(5);
 	ros::init(argc, argv, NAMES_NODE);
     //Initialize collision thresholds by dynamic_reconfigure server
     dynamic_reconfigure::Server<robotics2020::CollisionGuardParamsConfig> dr_server;

@@ -32,8 +32,8 @@ catkin_package(CATKIN_DEPENDS message_runtime)
 ## Build talker and listener
 include_directories(include ${catkin_INCLUDE_DIRS})
 
-add_executable(distance src/srv/distance.cpp)
-target_link_libraries(distance ${catkin_LIBRARIES})
+add_executable(srv_distance src/srv/distance.cpp)
+target_link_libraries(srv_distance ${catkin_LIBRARIES})
 
 add_executable(lla2enu src/lla2enu.cpp)
 target_link_libraries(lla2enu ${catkin_LIBRARIES})
